@@ -1,6 +1,6 @@
 CC=gcc
 LD=gcc
-CFLAGS=-c -Wall
+CFLAGS=-Wall
 LFLAGS=
 
 TARGET=controller handler agent
@@ -9,10 +9,16 @@ TARGET=controller handler agent
 
 all: $(TARGET)
 
-$(TARGET): $@ net.o
-	$(LD) $(LFLAGS) $@.c net.o -o $@
+controller: controller.c ddos.h net_sockets.o
+	$(CC) $(CFLAGS) net_sockets.o controller.c -o $@
 
-net.o: net.c net.h
-	$(CC) $(CFLAGS) net.c
+handler: handler.c ddos.h net_sockets.o
+	$(CC) $(CFLAGS) net_sockets.o handler.c -o $@
+
+agent: agent.c ddos.h net_sockets.o
+	$(CC) $(CFLAGS) net_sockets.o agent.c -o $@
+
+net_sockets.o:net_sockets.c net_sockets.h
+	$(CC) $(CFLAGS) -c net_sockets.c
 clean:
-	rm -rf $(TARGET)
+	rm -rf $(TARGET) net_sockets.o

