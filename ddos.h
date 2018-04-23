@@ -4,12 +4,12 @@
 #include <arpa/inet.h>
 
 /* Ports */
-#define DDOS_CTRL_CLT_PORT 2000
+#define DDOS_CTRL_CLT_PORT 2002
 
-#define DDOS_HANDL_CLT_PORT 3000
-#define DDOS_HANDL_SRV_PORT 4000
+#define DDOS_HANDL_CLT_PORT 3003
+#define DDOS_HANDL_SRV_PORT 4004
 
-#define DDOS_AGENT_SRV_PORT 5000
+#define DDOS_AGENT_SRV_PORT 5005
 
 typedef enum
 {

@@ -64,7 +64,7 @@ int recv_data(int sock, void *buff, int buff_size, char *ip)
 {
     int rv;
     struct sockaddr_in client_address;
-    int client_address_len = 0;
+    socklen_t client_address_len = 0;
 
     rv = recvfrom(sock, buff, buff_size, 0, (struct sockaddr *)&client_address,
 		                   &client_address_len);

