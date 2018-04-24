@@ -22,7 +22,7 @@ static int str2sockaddr_in(struct sockaddr_in *dst, char *ip, int port)
     return 0;
 }
 
-int create_socket(int port, int timeout)
+int create_socket(char *ip, int port, int timeout)
 {
     int sock;
     struct sockaddr_in address;
@@ -30,9 +30,8 @@ int create_socket(int port, int timeout)
 
     memset(&address, 0, sizeof(address));
 
-    address.sin_family = AF_INET;
-    address.sin_port = htons(port);
-    address.sin_addr.s_addr = htonl(INADDR_ANY);
+    if ((str2sockaddr_in(&address, ip, port)) < 0)
+	goto Error;
 
     if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) 
 	goto Error;
