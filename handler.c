@@ -61,7 +61,7 @@ Error:
 
 static int check_agent(int sock, char *ip, void *data)
 {
-    int rv = ERROR, clt_sock = create_socket(DDOS_HANDL_CLT_PORT, 1000);
+    int rv = ERROR, clt_sock = create_socket(DDOS_HANDL_CLT_PORT, 10000);
     int *agents = data;
     ddos_request_t req = {};
     ddos_responce_t resp = {};
@@ -140,7 +140,7 @@ static int add_agent(int sock, char *ip)
 
 static int attack(int sock, char* ip, void *data)
 {
-    int rv = ERROR, clt_sock = create_socket(DDOS_HANDL_CLT_PORT, 1000);
+    int rv = ERROR, clt_sock = create_socket(DDOS_HANDL_CLT_PORT, 10000);
     ddos_request_t req = {};
     ddos_responce_t resp = {};
     attack_data_t *attack_data = data; 

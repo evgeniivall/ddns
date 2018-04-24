@@ -361,7 +361,7 @@ int main(int argc, char *argv[])
     if (cmd == ERROR)
         return 1;
 
-    sock = create_socket(DDOS_CTRL_CLT_PORT, 1000); 
+    sock = create_socket(DDOS_CTRL_CLT_PORT, 10000); 
     if (sock == ERROR)
         return 1;
 
